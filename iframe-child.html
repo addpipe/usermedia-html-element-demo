@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>&lt;usermedia&gt; inside an iframe</title>
+    <script>
+      if ("HTMLUserMediaElement" in window) {
+        document.documentElement.classList.add("has-usermedia");
+      }
+    </script>
+    <style>
+      :root {
+        --ink: #1b1b1b;
+        --muted: #5f6b76;
+        --line: #dfe3e8;
+        --panel: #f7f8f9;
+        --brand: #ed341d;
+        --brand-dark: #c72d1c;
+        --ok: #1f7a4d;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 0.9rem;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-size: 0.85rem;
+        line-height: 1.5;
+        color: var(--ink);
+        background: #fff;
+      }
+      p {
+        margin: 0 0 0.6rem;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.88em;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 0.05em 0.3em;
+      }
+      .has-usermedia usermedia {
+        color: #ffffff;
+        background-color: var(--brand);
+        border: 2px solid var(--brand-dark);
+        border-radius: 6px;
+        font-size: 1rem;
+        font-weight: 600;
+        padding: 0.4rem 0.9rem;
+      }
+      .has-usermedia usermedia:granted {
+        background-color: var(--ok);
+        border-color: #17603b;
+      }
+      button {
+        font: inherit;
+        font-weight: 600;
+        padding: 0.4rem 0.9rem;
+        border-radius: 5px;
+        border: 1px solid var(--brand);
+        background: var(--brand);
+        color: #fff;
+        cursor: pointer;
+      }
+      #out {
+        margin-top: 0.6rem;
+        padding: 0.5rem 0.6rem;
+        border-radius: 5px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.74rem;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .policy {
+        font-weight: 600;
+      }
+      .policy.allowed {
+        color: var(--ok);
+      }
+      .policy.blocked {
+        color: var(--brand-dark);
+      }
+    </style>
+  </head>
+  <body>
+    <p id="intro"></p>
+
+    <usermedia id="frameUserMedia">
+      <button id="frameFallback">Enable camera and mic</button>
+    </usermedia>
+
+    <div id="out">Waiting…</div>
+
+    <script>
+      (function () {
+        "use strict";
+
+        var params = new URLSearchParams(location.search);
+        var label = params.get("label") || "frame";
+        var el = document.getElementById("frameUserMedia");
+        var out = document.getElementById("out");
+        var lines = [];
+
+        function policyAllows(feature) {
+          var policy = document.permissionsPolicy || document.featurePolicy;
+          if (!policy || typeof policy.allowsFeature !== "function") return null;
+          try {
+            return policy.allowsFeature(feature);
+          } catch (err) {
+            return null;
+          }
+        }
+
+        var cameraAllowed = policyAllows("camera");
+        var micAllowed = policyAllows("microphone");
+
+        function policyText(value) {
+          if (value === null) return '<span class="policy">unknown</span>';
+          return value
+            ? '<span class="policy allowed">allowed</span>'
+            : '<span class="policy blocked">blocked</span>';
+        }
+
+        document.getElementById("intro").innerHTML =
+          "Framed with " +
+          (label === "allowed"
+            ? '<code>allow="camera; microphone"</code>'
+            : "<code>allow=\"camera 'none'; microphone 'none'\"</code>") +
+          ". camera: " +
+          policyText(cameraAllowed) +
+          ", microphone: " +
+          policyText(micAllowed) +
+          ".";
+
+        function report(level, message, detail, summary) {
+          lines.push(message + (detail ? "\n  " + detail : ""));
+          out.textContent = lines.join("\n");
+          try {
+            window.parent.postMessage(
+              {
+                source: "usermedia-demo-frame",
+                label: label,
+                level: level,
+                message: message,
+                detail: detail,
+                summary: summary
+              },
+              "*"
+            );
+          } catch (err) {
+            /* the parent may be gone */
+          }
+        }
+
+        var supported = "HTMLUserMediaElement" in window;
+        report(
+          "info",
+          "Frame ready. <usermedia> support: " + supported +
+            ", camera policy: " + cameraAllowed + ", microphone policy: " + micAllowed
+        );
+
+        if (supported) {
+          el.setConstraints({ video: {}, audio: {} });
+        }
+
+        var settled = false;
+
+        el.addEventListener("pointerdown", function () {
+          settled = false;
+          report("debug", "Element clicked in the " + label + " frame");
+          setTimeout(function () {
+            if (!settled) {
+              report(
+                "warn",
+                "No stream, error or cancel event after 3s in the " + label + " frame",
+                "The element was activated but produced nothing. That is what a permissions-policy " +
+                  "block looks like from script: the element is invalid, so the activation never " +
+                  "reaches the permission layer and no event is ever fired.",
+                "clicked, then silence — the element is inert here"
+              );
+            }
+          }, 3000);
+        });
+
+        el.addEventListener("stream", function () {
+          settled = true;
+          var stream = el.stream;
+          report(
+            "info",
+            "'stream' fired in the " + label + " frame",
+            stream
+              .getTracks()
+              .map(function (t) {
+                return t.kind + ' "' + t.label + '"';
+              })
+              .join(", "),
+            "stream acquired successfully"
+          );
+          stream.getTracks().forEach(function (t) {
+            t.stop();
+          });
+          report("debug", "Tracks stopped again to release the devices");
+        });
+
+        el.addEventListener("error", function () {
+          settled = true;
+          report(
+            "error",
+            "'error' fired in the " + label + " frame: " + (el.error && el.error.name),
+            el.error && el.error.message,
+            "error: " + (el.error && el.error.name)
+          );
+        });
+
+        el.addEventListener("cancel", function () {
+          settled = true;
+          report("warn", "'cancel' fired in the " + label + " frame", null, "the user dismissed the prompt");
+        });
+
+        if (!supported) {
+          document.getElementById("frameFallback").addEventListener("click", function () {
+            navigator.mediaDevices
+              .getUserMedia({ video: true, audio: true })
+              .then(function (stream) {
+                stream.getTracks().forEach(function (t) {
+                  t.stop();
+                });
+                report("info", "Fallback getUserMedia() resolved in the " + label + " frame", null, "fallback succeeded");
+              })
+              .catch(function (err) {
+                report("error", "Fallback getUserMedia() rejected: " + err.name, err.message, "fallback failed: " + err.name);
+              });
+          });
+        }
+      })();
+    </script>
+  </body>
+</html>

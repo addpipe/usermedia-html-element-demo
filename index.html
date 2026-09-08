@@ -1,0 +1,1137 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>&lt;usermedia&gt; HTML Element Demo — Chrome's Camera &amp; Microphone Capability Element</title>
+
+    <meta
+      name="description"
+      content="Interactive demo of the new <usermedia> HTML element in Chrome 151+: declarative camera and microphone permission, setConstraints(), the stream/error/cancel events, :granted styling, the <camera> and <microphone> capability elements, and a getUserMedia() fallback. Every event logged."
+    />
+    <meta
+      name="keywords"
+      content="usermedia HTML element, usermedia element demo, HTMLUserMediaElement, capability elements, camera HTML element, microphone HTML element, permission element, PEPC, getUserMedia alternative, Chrome 151, declarative camera permission, camera permission recovery, setConstraints, MediaStream, WebRTC permissions"
+    />
+    <link rel="canonical" href="https://addpipe.com/tech-demos/usermedia-html-element-demo/" />
+
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:title"
+      content="<usermedia> HTML Element Demo — Chrome's Camera & Microphone Capability Element"
+    />
+    <meta
+      property="og:description"
+      content="Every feature of the new <usermedia> HTML element, live: declarative permission, constraint sanitization, :granted styling, <camera>/<microphone>, legacy mode, iframe permissions policy and a full event log."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="stylesheet" href="css/main.css" />
+
+    <script>
+      /* Flag support before first paint so the demo only paints brand styling
+         onto elements the browser actually implements. An unknown tag renders
+         its fallback button instead, and must not be given a button's skin. */
+      (function () {
+        var root = document.documentElement;
+        if ("HTMLUserMediaElement" in window) root.classList.add("has-usermedia");
+        if ("HTMLCameraElement" in window) root.classList.add("has-camera");
+        if ("HTMLMicrophoneElement" in window) root.classList.add("has-microphone");
+      })();
+    </script>
+  </head>
+  <body>
+    <div class="page">
+      <header>
+        <h1>The &lt;usermedia&gt; HTML Element Demo</h1>
+        <p class="byline">
+          Made by the
+          <a href="https://addpipe.com" target="_blank" rel="noopener noreferrer">Pipe Recording Platform</a>
+        </p>
+        <p class="lede">
+          <code>&lt;usermedia&gt;</code> is a new HTML element,
+          <a
+            href="https://developer.chrome.com/blog/usermedia-html-element"
+            target="_blank"
+            rel="noopener noreferrer"
+            >shipped in Chrome 151</a
+          >, that asks for camera and microphone access <em>declaratively</em>. You put the tag on
+          the page, the browser draws the button, the user clicks it, and your page gets a
+          <a
+            href="https://developer.mozilla.org/en-US/docs/Web/API/MediaStream"
+            target="_blank"
+            rel="noopener noreferrer"
+            >MediaStream</a
+          >
+          — no
+          <a
+            href="https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia"
+            target="_blank"
+            rel="noopener noreferrer"
+            >getUserMedia()</a
+          >
+          call in your code. This page exercises every part of it: the
+          <code>stream</code>, <code>error</code> and <code>cancel</code> events, the
+          <code>setConstraints()</code> filter, the enforced CSS rules, the <code>:granted</code>
+          pseudo-class, the sibling
+          <code>&lt;camera&gt;</code> and <code>&lt;microphone&gt;</code> capability elements, legacy
+          <code>&lt;permission&gt;</code> mode, permissions policy in iframes, and the
+          <code>getUserMedia()</code> fallback — logging everything as it happens.
+        </p>
+      </header>
+
+      <!-- Blocking problems (insecure context, no element, no getUserMedia) land here -->
+      <div id="pageNotice" class="notice is-hidden" role="alert"></div>
+
+      <div class="grid-2">
+        <section class="card">
+          <h2>How to use</h2>
+          <ol>
+            <li>Open this page in <strong>Chrome 151 or later</strong> over HTTPS or localhost.</li>
+            <li>
+              Click the browser-drawn button in <strong>The element, live</strong> below. Chrome —
+              not this page — draws it and owns the click.
+            </li>
+            <li>Allow camera and microphone in the prompt. The preview and the track table fill in.</li>
+            <li>
+              Try the <strong>constraints lab</strong> before clicking: it shows you exactly which
+              constraints Chrome keeps and which it throws away.
+            </li>
+            <li>
+              Break the element on purpose in the <strong>styling playground</strong> and watch
+              Chrome disable it.
+            </li>
+            <li>Watch the <strong>event &amp; error log</strong> at the bottom the whole time.</li>
+          </ol>
+        </section>
+
+        <section class="card">
+          <h2>What this demo covers</h2>
+          <ul>
+            <li><code>stream</code>, <code>error</code> and <code>cancel</code> events, live</li>
+            <li>
+              A constraint sanitizer that mirrors Chrome's own filter — see what survives
+              <code>setConstraints()</code>
+            </li>
+            <li>Declarative constraints via a nested <code>&lt;script&gt;</code> tag</li>
+            <li>The full CSS rulebook, with one-click violations you can trigger</li>
+            <li><code>:granted</code> styling and the browser-supplied, <code>lang</code>-driven label</li>
+            <li>The <code>&lt;camera&gt;</code> and <code>&lt;microphone&gt;</code> single-capability elements</li>
+            <li>Legacy <code>type</code> mode: <code>isValid</code>, <code>invalidReason</code>, prompt events</li>
+            <li>Permissions policy in cross-document iframes</li>
+            <li>A working <code>getUserMedia()</code> fallback for Firefox and Safari</li>
+            <li>Complete event, track and error log with severity filters</li>
+          </ul>
+        </section>
+      </div>
+
+      <section class="card">
+        <h2>Environment &amp; support</h2>
+        <dl class="support" id="supportTable"></dl>
+        <p class="hint" id="supportHint"></p>
+      </section>
+
+      <!-- ==================================================================
+           1. THE ELEMENT, LIVE
+           ================================================================== -->
+      <section class="card" id="live-element">
+        <h2>1. The &lt;usermedia&gt; element, live</h2>
+        <p>
+          Below is a real <code>&lt;usermedia&gt;</code> element. Everything you see inside its box
+          is drawn by Chrome in a closed shadow root — the label text, the icon, the state. Your CSS
+          can tint it, but it cannot write it. The <code>&lt;button&gt;</code> nested inside is
+          fallback content: supporting browsers ignore it, everyone else gets it (and it is wired to
+          <code>getUserMedia()</code> — see section&nbsp;9).
+        </p>
+
+        <div class="element-stage">
+          <usermedia id="mainUserMedia">
+            <button class="button" id="fallbackButton">Enable camera and microphone</button>
+          </usermedia>
+        </div>
+
+        <p class="hint">
+          Nothing on this page can click that button for you. A scripted
+          <code>element.click()</code> is an untrusted event and fires <code>error</code> with an
+          <code>InvalidStateError</code> instead — there is a button in section 5 that proves it.
+        </p>
+
+        <div class="capture">
+          <div>
+            <div id="videoContainer">
+              <video id="live" autoplay playsinline muted></video>
+              <p class="audio-only-note">No video track in this stream.</p>
+            </div>
+            <div class="stack stack--offset-sm">
+              <p class="status" id="recStatus"><span class="dot"></span><span id="recStatusText">Idle — no stream</span></p>
+              <div>
+                <h3>Input level</h3>
+                <div class="meter" aria-hidden="true"><span id="levelBar"></span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="stack">
+            <ul class="stats" id="stats">
+              <li><div class="stat-label">Element state</div><div class="stat-value" id="statState">request</div></li>
+              <li><div class="stat-label">Tracks</div><div class="stat-value" id="statTracks">0</div></li>
+              <li><div class="stat-label">Time to stream</div><div class="stat-value" id="statLatency">—</div></li>
+              <li><div class="stat-label">stream events</div><div class="stat-value" id="statStream">0</div></li>
+              <li><div class="stat-label">cancel events</div><div class="stat-value" id="statCancel">0</div></li>
+              <li><div class="stat-label">error events</div><div class="stat-value" id="statError">0</div></li>
+            </ul>
+
+            <div class="controls">
+              <button class="button button--secondary button--small" id="stopTracks" disabled>
+                stop() all tracks
+              </button>
+              <button class="button button--secondary button--small" id="toggleVideo" disabled>
+                Toggle video track
+              </button>
+              <button class="button button--secondary button--small" id="toggleAudio" disabled>
+                Toggle audio track
+              </button>
+            </div>
+            <p class="hint">
+              Stopping every track returns the element to its <em>request</em> state, and the next
+              click fetches a fresh stream. While a stream is set, clicks on
+              <code>&lt;usermedia&gt;</code> are ignored — unlike
+              <code>&lt;camera&gt;</code> and <code>&lt;microphone&gt;</code>, it has no second-click
+              mute behavior.
+            </p>
+          </div>
+        </div>
+
+        <h3>Live properties</h3>
+        <dl class="support" id="propTable"></dl>
+
+        <h3>Tracks in <code>element.stream</code></h3>
+        <div id="trackList" class="track-list">
+          <p class="placeholder">No stream yet.</p>
+        </div>
+
+        <details class="json-view">
+          <summary>Raw track settings, capabilities &amp; constraints (JSON)</summary>
+          <pre id="trackJson">{}</pre>
+        </details>
+      </section>
+
+      <!-- ==================================================================
+           2. CONSTRAINTS LAB
+           ================================================================== -->
+      <section class="card" id="constraints">
+        <h2>2. setConstraints() and the constraint filter</h2>
+        <p>
+          <code>setConstraints()</code> takes an <code>HTMLMediaStreamConstraints</code> dictionary —
+          <code>{ video: MediaTrackConstraintSet, audio: MediaTrackConstraintSet }</code> — and hands
+          it to the <code>getUserMedia()</code> call Chrome makes on your behalf. It is not the same
+          thing as passing constraints to <code>getUserMedia()</code> yourself. Chrome runs your
+          dictionary through a filter first, and the filter is aggressive:
+        </p>
+        <ul>
+          <li>
+            Only a fixed list of properties survives. Anything else — <code>displaySurface</code>,
+            <code>zoom</code>, <code>torch</code>, <code>suppressLocalAudioPlayback</code>,
+            <code>advanced</code> — is dropped on the floor.
+          </li>
+          <li>
+            Every surviving property must be a <strong>bare value</strong>. A
+            <code>ConstrainRange</code> or <code>ConstrainDOMStringParameters</code> object —
+            <code>{ exact: … }</code>, <code>{ ideal: … }</code>, <code>{ min: …, max: … }</code> —
+            is discarded, key and all. This exists so the element can never fail with an
+            <code>OverconstrainedError</code>, but it means the most common way of writing
+            constraints silently does nothing.
+          </li>
+          <li>
+            The result always contains <em>both</em> an audio and a video entry, so
+            <code>&lt;usermedia&gt;</code> always requests both devices.
+            <code>audio: false</code> will not give you a video-only stream. That is what the
+            <code>&lt;camera&gt;</code> and <code>&lt;microphone&gt;</code> elements are for.
+          </li>
+          <li>
+            <strong><code>setConstraints()</code> only takes effect once.</strong> The first call
+            wins; every later call on the same element returns without doing anything and without
+            warning. Build the whole dictionary before you call it.
+          </li>
+        </ul>
+
+        <div class="grid-2 grid-2--fields">
+          <div class="field">
+            <label for="videoConstraints">video constraint set</label>
+            <textarea id="videoConstraints" rows="9" spellcheck="false">
+{
+  "width": 1280,
+  "height": 720,
+  "frameRate": { "exact": 30 },
+  "facingMode": "user",
+  "zoom": 2
+}</textarea
+            >
+          </div>
+          <div class="field">
+            <label for="audioConstraints">audio constraint set</label>
+            <textarea id="audioConstraints" rows="9" spellcheck="false">
+{
+  "echoCancellation": { "ideal": true },
+  "noiseSuppression": true,
+  "sampleRate": 48000,
+  "autoGainControl": true,
+  "suppressLocalAudioPlayback": true
+}</textarea
+            >
+          </div>
+        </div>
+
+        <div class="controls stack--offset-sm">
+          <button class="button button--secondary button--small" id="applyConstraints">
+            Call setConstraints()
+          </button>
+          <button class="button button--secondary button--small" id="constraintPreset1">
+            Preset: all bare values
+          </button>
+          <button class="button button--secondary button--small" id="constraintPreset2">
+            Preset: everything wrapped (all dropped)
+          </button>
+          <button class="button button--secondary button--small" id="constraintPreset3">
+            Preset: pick devices by deviceId
+          </button>
+        </div>
+        <p class="hint" id="constraintStatus">
+          Call this before the first click on the element. Afterwards it has no effect.
+        </p>
+
+        <h3>What Chrome will actually send</h3>
+        <p class="hint">
+          Computed locally with the same rules as Chromium's
+          <code>SanitizeTrackConstraints()</code>. Green survives, red is dropped.
+        </p>
+        <div id="sanitizerOut" class="sanitizer"></div>
+
+        <details class="json-view">
+          <summary>Filtered dictionary as JSON</summary>
+          <pre id="sanitizedJson">{}</pre>
+        </details>
+
+        <h3>The properties that survive</h3>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr><th>Property</th><th>Applies to</th><th>Accepted form</th></tr>
+            </thead>
+            <tbody id="allowedConstraintsTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ==================================================================
+           3. DECLARATIVE CONSTRAINTS
+           ================================================================== -->
+      <section class="card" id="declarative">
+        <h2>3. Declarative constraints without JavaScript</h2>
+        <p>
+          Constraints can also be written straight into the markup, as a JSON payload in a nested
+          <code>&lt;script type="permissionconstraints"&gt;</code>. The type is not a real script
+          type, so nothing executes; the element reads the text content. This is not covered in
+          Chrome's announcement post, so treat it as best-effort — the probe below tells you whether
+          it did anything in <em>your</em> browser.
+        </p>
+
+        <div class="element-stage">
+          <usermedia id="declarativeUserMedia">
+            <script type="permissionconstraints">
+              {
+                "video": { "width": 640, "height": 480, "facingMode": "user" },
+                "audio": { "echoCancellation": false, "noiseSuppression": false }
+              }
+            </script>
+            <button class="button" data-fallback="declarative">Enable camera and mic (declarative)</button>
+          </usermedia>
+        </div>
+
+        <p class="hint">
+          Click it, then compare the resulting track settings against the JSON above. A 640×480 video
+          track with echo cancellation off means the markup was honoured.
+        </p>
+        <dl class="support" id="declarativeResult"></dl>
+      </section>
+
+      <!-- ==================================================================
+           4. STYLING
+           ================================================================== -->
+      <section class="card" id="styling">
+        <h2>4. Styling: what the browser lets you change</h2>
+        <p>
+          The element is a trusted surface, so Chrome polices its appearance. Two mechanisms are at
+          work and they behave very differently:
+        </p>
+        <ul>
+          <li>
+            <strong>Correction.</strong> Out-of-range values are clamped or reset during style
+            adjustment. The element keeps working; you just do not get what you asked for.
+            <code>font-weight: 100</code> becomes 200, a negative margin becomes 0,
+            <code>font-style: oblique 40deg</code> becomes <code>normal</code>, and
+            <code>max-height</code> lands at three times the font size no matter what you wrote.
+          </li>
+          <li>
+            <strong>Invalidation.</strong> Some violations make the element refuse to be clicked at
+            all: contrast below 3:1, a non-opaque <code>color</code> or
+            <code>background-color</code>, a font smaller than <code>small</code> or larger than
+            <code>xxx-large</code>, a forbidden <code>display</code> value, or the element being
+            occluded, clipped, off-screen or freshly attached. Chrome files a report in the DevTools
+            <strong>Issues</strong> panel each time.
+          </li>
+        </ul>
+
+        <div class="grid-2 grid-2--fields">
+          <div class="field">
+            <label for="styleInput">CSS applied to the playground element</label>
+            <textarea id="styleInput" rows="10" spellcheck="false">
+#playgroundUserMedia {
+  color: #ffffff;
+  background-color: #ed341d;
+  border: 2px solid #c72d1c;
+  border-radius: 999px;
+  font-size: 1rem;
+  padding: 0.5rem 1.25rem;
+}</textarea
+            >
+            <p class="hint">Edited live. Try a preset, or break it yourself.</p>
+          </div>
+
+          <div class="field">
+            <label>Playground element</label>
+            <div class="element-stage element-stage--playground" id="playgroundStage">
+              <usermedia id="playgroundUserMedia">
+                <button class="button" data-fallback="playground">Enable camera and mic</button>
+              </usermedia>
+            </div>
+            <p class="hint" id="playgroundHint">
+              Computed style is read back below, so you can see exactly what Chrome corrected.
+            </p>
+          </div>
+        </div>
+
+        <div class="controls stack--offset-sm" id="stylePresets">
+          <button class="button button--secondary button--small" data-preset="valid">Valid brand styling</button>
+          <button class="button button--secondary button--small" data-preset="contrast">Low contrast (3:1)</button>
+          <button class="button button--secondary button--small" data-preset="alpha">Transparent colors</button>
+          <button class="button button--secondary button--small" data-preset="tiny">font-size: 4px</button>
+          <button class="button button--secondary button--small" data-preset="huge">font-size: 200px</button>
+          <button class="button button--secondary button--small" data-preset="display">display: inline</button>
+          <button class="button button--secondary button--small" data-preset="distort">transform + filter</button>
+          <button class="button button--secondary button--small" data-preset="squeeze">Negative margins, tiny box</button>
+          <button class="button button--secondary button--small" data-preset="occlude">Cover it with a div</button>
+        </div>
+
+        <h3>Author value vs. computed value</h3>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr><th>Property</th><th>You asked for</th><th>Browser computed</th><th></th></tr>
+            </thead>
+            <tbody id="computedStyleTable"></tbody>
+          </table>
+        </div>
+
+        <h3>The rulebook</h3>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr><th>Property</th><th>Rule enforced by Chrome</th></tr>
+            </thead>
+            <tbody id="cssRulesTable"></tbody>
+          </table>
+        </div>
+        <p class="hint">
+          Everything not listed — <code>border-*</code>, <code>outline-*</code>,
+          <code>width</code>, <code>height</code>, <code>position</code>, <code>top/right/bottom/left</code>,
+          <code>flex-*</code>, <code>z-index</code>, <code>visibility</code>,
+          <code>aspect-ratio</code>, <code>color-scheme</code>, the font-synthesis family and their
+          logical equivalents such as <code>inline-size</code> — behaves normally.
+          <code>background-image</code>, <code>border-image</code>, <code>mask</code>,
+          <code>clip-path</code>, <code>filter</code>, <code>cursor</code>,
+          <code>content-visibility</code>, <code>contain</code> and the
+          <code>corner-shape</code> family are ignored outright.
+        </p>
+      </section>
+
+      <!-- ==================================================================
+           5. STATE, PSEUDO-CLASSES, TRUST
+           ================================================================== -->
+      <section class="card" id="state">
+        <h2>5. State, the :granted pseudo-class and trusted clicks</h2>
+
+        <h3>:granted</h3>
+        <p>
+          <code>usermedia:granted</code> matches once permission is active and the stream has been
+          acquired. It is the only way to react to the element's state from CSS — there is no
+          <code>:denied</code>, and <code>:invalid</code> only exists in legacy mode. Standard
+          <code>:hover</code> and <code>:active</code> work as usual.
+        </p>
+        <pre class="code-block"><code>usermedia {
+  background-color: #ed341d;
+  color: #fff;
+}
+
+usermedia:granted {
+  background-color: #1f7a4d; /* live */
+}</code></pre>
+        <p class="hint" id="grantedState">Checking…</p>
+
+        <h3>The browser writes the label, and <code>lang</code> picks the language</h3>
+        <p>
+          You cannot set the element's text. Chrome supplies it, translated from the inherited
+          document language, and swaps it between the request and granted wording on its own. Change
+          the language below and watch the element re-render — including its width.
+        </p>
+        <div class="grid-2 grid-2--fields">
+          <div class="field">
+            <label for="langSelect">Inherited <code>lang</code></label>
+            <select id="langSelect">
+              <option value="en">en — English</option>
+              <option value="de">de — Deutsch</option>
+              <option value="fr">fr — Français</option>
+              <option value="es">es — Español</option>
+              <option value="ro">ro — Română</option>
+              <option value="hu">hu — Magyar</option>
+              <option value="ja">ja — 日本語</option>
+              <option value="ar">ar — العربية</option>
+              <option value="hi">hi — हिन्दी</option>
+              <option value="zh-Hans">zh-Hans — 简体中文</option>
+            </select>
+            <p class="hint" id="langWidth"></p>
+          </div>
+          <div class="field">
+            <label>Localized element</label>
+            <div id="langWrapper" lang="en">
+              <div class="element-stage">
+                <usermedia id="langUserMedia">
+                  <button class="button" data-fallback="lang">Enable camera and mic</button>
+                </usermedia>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <h3>Trusted activation</h3>
+        <p>
+          The element only acts on genuine user input. A synthetic click fails the
+          <code>isTrusted</code> check and produces an <code>error</code> event carrying an
+          <code>InvalidStateError</code> rather than a permission prompt. Chrome also refuses
+          activation for the first ~500&nbsp;ms after the element is attached or after its attributes
+          change, and while it is occluded, clipped or outside the viewport.
+        </p>
+        <div class="controls">
+          <button class="button button--secondary button--small" id="scriptClick">
+            Try element.click() from script
+          </button>
+          <button class="button button--secondary button--small" id="scriptFocus">
+            Try element.focus() from script
+          </button>
+          <button class="button button--secondary button--small" id="dispatchClick">
+            Try dispatchEvent(new MouseEvent('click'))
+          </button>
+        </div>
+        <p class="hint" id="trustResult">Results appear here and in the log.</p>
+      </section>
+
+      <!-- ==================================================================
+           6. CAMERA AND MICROPHONE
+           ================================================================== -->
+      <section class="card" id="camera-microphone">
+        <h2>6. The &lt;camera&gt; and &lt;microphone&gt; elements</h2>
+        <p>
+          Same machinery, one capability each, and one genuinely new behavior: after a grant they do
+          not go idle, they become a <strong>mute toggle</strong>. A second click flips
+          <code>track.enabled</code>, and the browser-drawn label follows. They expose
+          <code>track</code> (a single <code>MediaStreamTrack</code>) instead of
+          <code>stream</code>, fire <code>track</code> instead of <code>stream</code>, and take a
+          flat <code>MediaTrackConstraintSet</code> — no <code>video</code>/<code>audio</code>
+          wrapper. These are what you want when you need video only or audio only, which
+          <code>&lt;usermedia&gt;</code> cannot give you.
+        </p>
+        <p class="hint" id="camMicSupport"></p>
+
+        <div class="grid-2 grid-2--fields">
+          <div class="field">
+            <label>&lt;camera&gt; — video only</label>
+            <div class="element-stage">
+              <camera id="cameraEl">
+                <button class="button" data-fallback="camera">Use camera</button>
+              </camera>
+            </div>
+            <div id="cameraContainer" class="mini-video is-hidden">
+              <video id="cameraVideo" autoplay playsinline muted></video>
+            </div>
+            <p class="hint" id="cameraHint">No video track yet.</p>
+            <dl class="support" id="cameraProps"></dl>
+          </div>
+
+          <div class="field">
+            <label>&lt;microphone&gt; — audio only</label>
+            <div class="element-stage">
+              <microphone id="microphoneEl">
+                <button class="button" data-fallback="microphone">Use microphone</button>
+              </microphone>
+            </div>
+            <div class="meter meter--tall" aria-hidden="true"><span id="micLevelBar"></span></div>
+            <dl class="support" id="microphoneProps"></dl>
+          </div>
+        </div>
+
+        <pre class="code-block"><code>const cam = document.querySelector('camera');
+
+// Flat constraint set — no { video: … } wrapper.
+cam.setConstraints({ width: 1920, height: 1080, facingMode: 'environment' });
+
+cam.addEventListener('track', () => {
+  video.srcObject = new MediaStream([cam.track]);
+});</code></pre>
+      </section>
+
+      <!-- ==================================================================
+           7. LEGACY MODE
+           ================================================================== -->
+      <section class="card" id="legacy">
+        <h2>7. Legacy mode: the <code>type</code> attribute</h2>
+        <p>
+          <code>&lt;usermedia&gt;</code> replaced the origin-trial
+          <code>&lt;permission type="camera microphone"&gt;</code> element. To keep those sites
+          working, adding a <code>type</code> attribute switches the element back to the old
+          <code>&lt;permission&gt;</code> behavior — a permission gate, not a stream mediator. It is
+          explicitly a migration shim and Chrome intends to deprecate it, so do not build on it.
+          Migrating means dropping <code>type</code> and swapping the
+          <code>HTMLPermissionElement</code> feature check for <code>HTMLUserMediaElement</code>.
+        </p>
+        <p>
+          Legacy mode does expose things standard mode has no equivalent for, which makes it the only
+          way to observe the element's own validity from script:
+          <code>isValid</code>, <code>invalidReason</code>, <code>permissionStatus</code>,
+          <code>initialPermissionStatus</code>, the static
+          <code>HTMLUserMediaElement.isTypeSupported()</code>, the <code>:invalid</code>
+          pseudo-class, and the <code>promptaction</code>, <code>promptdismiss</code> and
+          <code>validationstatuschange</code> events.
+        </p>
+        <p class="hint" id="legacySupport"></p>
+
+        <div class="grid-2 grid-2--fields">
+          <div class="field">
+            <label for="legacyType">type attribute</label>
+            <select id="legacyType">
+              <option value="" selected>(no type — standard mode)</option>
+              <option value="camera microphone">camera microphone</option>
+              <option value="camera">camera</option>
+              <option value="microphone">microphone</option>
+              <option value="geolocation">geolocation — wrong type for this element</option>
+              <option value="nonsense">nonsense — an invalid type</option>
+            </select>
+            <div class="element-stage stack--offset-sm" id="legacyStage">
+              <usermedia id="legacyUserMedia">
+                <button class="button" data-fallback="legacy">Use camera and microphone</button>
+              </usermedia>
+            </div>
+            <div class="controls stack--offset-sm">
+              <button class="button button--secondary button--small" id="legacyOcclude">
+                Toggle occluding overlay
+              </button>
+            </div>
+            <p class="hint">
+              Cover the element and watch <code>isValid</code> flip to
+              <code>false</code> with an <code>invalidReason</code> — the anti-clickjacking check,
+              made visible. Pick a type the element does not recognise and it gives up entirely:
+              it drops into fallback mode, renders its nested button like an unknown tag would, and
+              reports <code>type_invalid</code>.
+            </p>
+          </div>
+          <div class="field">
+            <label>Legacy properties</label>
+            <dl class="support" id="legacyProps"></dl>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================================================================
+           8. IFRAMES / PERMISSIONS POLICY
+           ================================================================== -->
+      <section class="card" id="iframes">
+        <h2>8. Iframes, permissions policy and cross-origin rules</h2>
+        <p>
+          The element is bound by the same permissions policy as
+          <code>getUserMedia()</code>, plus two rules of its own. Where the policy does not allow the
+          feature, the element goes permanently inert: it still renders, it still takes the click,
+          and then nothing happens — no prompt, no stream, no <code>stream</code> event, no
+          <code>error</code>. Granting the permission in the top-level document does not help.
+        </p>
+        <ul>
+          <li>
+            <strong>Same-origin frames already have it.</strong> <code>camera</code> and
+            <code>microphone</code> default to a <code>self</code> allowlist, so a same-origin child
+            inherits them without any <code>allow</code> attribute. You have to deny it explicitly —
+            <code>allow="camera 'none'; microphone 'none'"</code> — which is what the left frame
+            below does.
+          </li>
+          <li>
+            <strong>Cross-origin frames need both.</strong> <code>allow="camera; microphone"</code>
+            on the iframe <em>and</em> a Content-Security-Policy with a
+            <code>frame-ancestors</code> directive served by the framed document. Without that CSP
+            the element is invalid in any frame cross-origin to the outermost page, whatever the
+            permissions policy says.
+          </li>
+          <li>
+            <strong>Fenced frames are out entirely</strong>, as are insecure contexts — over plain
+            HTTP the element renders its fallback content instead.
+          </li>
+        </ul>
+        <div class="grid-2 grid-2--fields">
+          <div class="field">
+            <label>Denied — <code>allow="camera 'none'; microphone 'none'"</code></label>
+            <iframe
+              id="frameBlocked"
+              class="demo-frame"
+              allow="camera 'none'; microphone 'none'"
+              src="iframe-child.html?label=denied"
+              title="usermedia element in an iframe where permissions policy denies camera and microphone"
+            ></iframe>
+          </div>
+          <div class="field">
+            <label>Allowed — <code>allow="camera; microphone"</code></label>
+            <iframe
+              id="frameAllowed"
+              class="demo-frame"
+              allow="camera; microphone"
+              src="iframe-child.html?label=allowed"
+              title="usermedia element in an iframe with permissions policy delegation"
+            ></iframe>
+          </div>
+        </div>
+        <p class="hint" id="frameHint">
+          Both frames report back here and into the log below. Click the element in each and compare.
+          Open this page over <code>file://</code> and the frames will not load — serve it over HTTP.
+        </p>
+      </section>
+
+      <!-- ==================================================================
+           9. FALLBACK
+           ================================================================== -->
+      <section class="card" id="fallback">
+        <h2>9. Progressive enhancement and the getUserMedia() fallback</h2>
+        <p>
+          Browsers that do not know the tag parse it as an
+          <code>HTMLUnknownElement</code> and render its children; Chrome renders its own UI and
+          hides them. One markup, both audiences. Feature-detect with the interface name, not the
+          tag:
+        </p>
+        <pre class="code-block"><code>&lt;usermedia id="stream-handler"&gt;
+  &lt;button id="fallback-stream-handler"&gt;Enable camera and mic&lt;/button&gt;
+&lt;/usermedia&gt;</code></pre>
+        <pre class="code-block"><code>if ('HTMLUserMediaElement' in window) {
+  document.getElementById('stream-handler')
+    .addEventListener('stream', handleStream);
+} else {
+  document.getElementById('fallback-stream-handler')
+    .addEventListener('click', () =&gt; {
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        .then(handleStream);
+    });
+}</code></pre>
+        <p class="hint" id="fallbackStatus"></p>
+
+        <h3>Your current configuration, as code</h3>
+        <p class="hint">
+          Generated from the constraints and CSS you set above. Copy it into your own page.
+        </p>
+        <pre class="code-block"><code id="generatedCode"></code></pre>
+        <div class="controls">
+          <button class="button button--secondary button--small" id="copyCode">Copy code</button>
+        </div>
+      </section>
+
+      <!-- ==================================================================
+           10. COMPARISON
+           ================================================================== -->
+      <section class="card" id="comparison">
+        <h2>10. &lt;usermedia&gt; vs. getUserMedia()</h2>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Feature</th>
+                <th><code>getUserMedia()</code></th>
+                <th><code>&lt;usermedia&gt;</code></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>What triggers the prompt</td>
+                <td>Your script, whenever it runs</td>
+                <td>A user click on a browser-drawn control</td>
+              </tr>
+              <tr>
+                <td>Browser's role</td>
+                <td>Applies heuristics and quiet blocks to decide whether to even show a prompt</td>
+                <td>Data mediator — owns consent, the call, and delivery of the stream</td>
+              </tr>
+              <tr>
+                <td>Your code</td>
+                <td>Call the API, chain the promise, handle every rejection name</td>
+                <td>Listen for <code>stream</code>, read <code>.stream</code></td>
+              </tr>
+              <tr>
+                <td>Recovering from a previous denial</td>
+                <td>Send the user into browser settings and hope</td>
+                <td>In-page recovery flow on the next click</td>
+              </tr>
+              <tr>
+                <td>Quiet blocks after repeated dismissals</td>
+                <td>Request can silently never prompt</td>
+                <td>Bypassed — the click is a trusted intent signal</td>
+              </tr>
+              <tr>
+                <td>Constraints</td>
+                <td>Full <code>MediaStreamConstraints</code>, including <code>exact</code>, ranges and <code>advanced</code></td>
+                <td>Filtered allowlist of bare values only</td>
+              </tr>
+              <tr>
+                <td>Audio-only or video-only</td>
+                <td><code>{ video: true, audio: false }</code></td>
+                <td>Not possible — use <code>&lt;camera&gt;</code> or <code>&lt;microphone&gt;</code></td>
+              </tr>
+              <tr>
+                <td>Device picking</td>
+                <td><code>deviceId: { exact: … }</code> after <code>enumerateDevices()</code></td>
+                <td><code>deviceId</code> as a bare string, best-effort</td>
+              </tr>
+              <tr>
+                <td>Errors you can get</td>
+                <td>NotAllowed, NotFound, NotReadable, Overconstrained, Security, Type…</td>
+                <td>Same minus Overconstrained, plus a separate <code>cancel</code> event for dismissal</td>
+              </tr>
+              <tr>
+                <td>Appearance</td>
+                <td>Yours entirely</td>
+                <td>Browser-drawn, tintable within limits</td>
+              </tr>
+              <tr>
+                <td>Support</td>
+                <td>Every modern browser</td>
+                <td>Chrome 151+ on desktop and Android, not WebView</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="hint">
+          Reported from Chrome's origin trial: Cisco saw permission recovery after an initial denial
+          go from about 10% to over 65%. Zoom measured a 46.9% drop in camera and microphone capture
+          errors. Google Meet saw 17% less "mic not working" feedback and a 131% increase in
+          successful recovery.
+        </p>
+      </section>
+
+      <!-- ==================================================================
+           EVENT LOG
+           ================================================================== -->
+      <section class="card" id="log-section">
+        <h2>Event &amp; error log</h2>
+        <div class="log-toolbar">
+          <div class="log-filters">
+            <label><input type="checkbox" data-level="error" checked /> Errors</label>
+            <label><input type="checkbox" data-level="warn" checked /> Warnings</label>
+            <label><input type="checkbox" data-level="info" checked /> Info</label>
+            <label><input type="checkbox" data-level="debug" /> Debug</label>
+          </div>
+          <span class="spacer"></span>
+          <button class="button button--secondary button--small" id="copyLog">Copy log</button>
+          <button class="button button--secondary button--small" id="clearLog">Clear</button>
+        </div>
+        <div class="log" id="logPanel" role="log" aria-live="polite">
+          <p class="log-empty">No events yet.</p>
+        </div>
+        <p class="hint">
+          Every <code>stream</code>, <code>error</code> and <code>cancel</code> event from every
+          element on this page, every <code>MediaStreamTrack</code> state change
+          (<code>mute</code>, <code>unmute</code>, <code>ended</code>), every Permissions API
+          change, every style validation result and every uncaught page error is recorded here with
+          the elapsed time since page load. Enable <strong>Debug</strong> for the per-frame noise.
+          Chrome's own complaints about your CSS go to the DevTools <strong>Issues</strong> panel,
+          not here.
+        </p>
+      </section>
+
+      <!-- ==================================================================
+           FAQ
+           ================================================================== -->
+      <section class="card" id="faq">
+        <h2>Frequently asked questions</h2>
+
+        <h3>What is the &lt;usermedia&gt; HTML element?</h3>
+        <p>
+          A built-in HTML element, shipped in Chrome 151, that requests camera and microphone access
+          and hands your page the resulting <code>MediaStream</code>. The browser renders the
+          control and owns the click, so the permission prompt is guaranteed to be attached to a real
+          user action. It is part of Chrome's Capability Elements suite, which grew out of the
+          <code>&lt;permission&gt;</code> element (PEPC) proposal and now also includes
+          <code>&lt;geolocation&gt;</code>, <code>&lt;camera&gt;</code> and
+          <code>&lt;microphone&gt;</code>.
+        </p>
+
+        <h3>Does &lt;usermedia&gt; replace getUserMedia()?</h3>
+        <p>
+          No. <code>getUserMedia()</code> stays the primary programmatic API and is explicitly a
+          non-goal to replace. The element covers the common case where a user clicks something to
+          turn their camera on; anything needing exact constraints, device switching mid-call, or
+          audio-only capture still goes through the JavaScript API.
+        </p>
+
+        <h3>Which browsers support the &lt;usermedia&gt; element?</h3>
+        <p>
+          Chrome 151 and later, on desktop and Android. Not Android WebView — the element needs
+          browser-level permission UI that WebView delegates to its embedder. Firefox has the
+          proposal under consideration and Safari has not given a position. Everywhere else the tag
+          is an unknown element and your fallback content renders instead.
+        </p>
+
+        <h3>Can I use &lt;usermedia&gt; for video only or audio only?</h3>
+        <p>
+          No. The constraint filter always produces both an audio and a video entry, so the element
+          always asks for both devices. <code>audio: false</code> is discarded. Use
+          <code>&lt;camera&gt;</code> for video-only or <code>&lt;microphone&gt;</code> for
+          audio-only.
+        </p>
+
+        <h3>Why are my constraints being ignored?</h3>
+        <p>
+          Almost always because they are wrapped. <code>{ width: { ideal: 1280 } }</code> is dropped
+          entirely; <code>{ width: 1280 }</code> is kept. The filter also drops any property outside
+          its allowlist, and <code>setConstraints()</code> only takes effect on its first call.
+          Section 2 above shows you which of your constraints survive.
+        </p>
+
+        <h3>Why did my element stop responding to clicks?</h3>
+        <p>
+          Chrome disables the element when it cannot vouch for the click: contrast under 3:1, a
+          translucent color, a font outside the <code>small</code>–<code>xxx-large</code> range, a
+          forbidden <code>display</code> value, something overlapping it, it being clipped or
+          scrolled out of view, or it having been attached or modified within the last half second.
+          The DevTools Issues panel names the exact violation.
+        </p>
+
+        <h3>Can I change the button's text?</h3>
+        <p>
+          No. The label is browser-supplied and localized from the inherited
+          <code>lang</code>, and it changes by itself between the request and granted states. That is
+          the point — a label the page cannot write is a label the user can trust.
+        </p>
+
+        <h3>Does clicking the element skip the permission prompt?</h3>
+        <p>
+          No. The click is a stronger signal of intent, which lets Chrome bypass the quiet blocks
+          that suppress script-triggered prompts and offer in-page recovery after a denial, but the
+          user still decides.
+        </p>
+      </section>
+
+      <!-- ==================================================================
+           META
+           ================================================================== -->
+      <section class="card card--muted">
+        <h2>Works on</h2>
+        <ul>
+          <li>Chrome 151+ on Windows, macOS, Linux, ChromeOS and Android — <code>&lt;usermedia&gt;</code></li>
+          <li>
+            Chrome 153+ — <code>&lt;camera&gt;</code> and <code>&lt;microphone&gt;</code>. Earlier
+            builds can enable them with the <code>CameraAndMicrophoneElements</code> flag under
+            <code>chrome://flags/#enable-experimental-web-platform-features</code>
+          </li>
+          <li>Chrome 144+ — the related <code>&lt;geolocation&gt;</code> capability element</li>
+          <li>Secure contexts only: HTTPS, or <code>localhost</code> / <code>127.0.0.1</code></li>
+          <li>Everywhere else: the fallback <code>&lt;button&gt;</code> and <code>getUserMedia()</code></li>
+        </ul>
+
+        <h2>Known issues</h2>
+        <ul>
+          <li>
+            No video-only or audio-only stream from <code>&lt;usermedia&gt;</code>. The camera light
+            comes on even if you only wanted a microphone
+          </li>
+          <li>
+            <code>setConstraints()</code> is one-shot and silent about it — a second call is
+            discarded with no warning, no exception and no console message
+          </li>
+          <li>
+            Wrapped constraints (<code>exact</code>, <code>ideal</code>, <code>min</code>,
+            <code>max</code>) are dropped silently, which makes reliable device selection and
+            resolution pinning hard
+          </li>
+          <li>
+            No declarative way to connect the element to a <code>&lt;video&gt;</code>. You still
+            need JavaScript to set <code>srcObject</code>
+          </li>
+          <li>
+            No <code>autostart</code> attribute in the shipped element. It is in the explainer, not
+            in Chrome 151 — the element has no way to resume a previously granted stream without a
+            click
+          </li>
+          <li>
+            No way to read the element's own validity in standard mode. <code>isValid</code> and
+            <code>invalidReason</code> exist only in the deprecated <code>type</code> legacy mode
+          </li>
+          <li>
+            A stream starts live. There is no way to acquire it with tracks disabled, so the hardware
+            indicator lights up the moment permission is granted
+          </li>
+          <li>
+            In a cross-origin iframe the element is invalid unless the framed document also serves
+            a Content-Security-Policy containing <code>frame-ancestors</code> — a requirement
+            <code>getUserMedia()</code> does not have, and one that quietly breaks embedded widgets
+          </li>
+          <li>
+            When it is invalid — blocked by permissions policy, occluded, badly styled — clicks
+            produce nothing at all. No event, no exception, no console message, so there is no way
+            for your code to notice
+          </li>
+          <li>
+            Not available in Android WebView, which rules out a large slice of in-app browsers
+          </li>
+          <li>
+            The element is not focusable from script and is skipped by
+            <code>autofocus</code> without user activation, so keyboard-first flows need care
+          </li>
+          <li>Chrome-only for now: no Firefox or Safari implementation</li>
+        </ul>
+
+        <h2>Links</h2>
+        <ul>
+          <li>
+            <a href="https://developer.chrome.com/blog/usermedia-html-element" target="_blank" rel="noopener noreferrer"
+              >Introducing the &lt;usermedia&gt; HTML element — Chrome for Developers</a
+            >
+          </li>
+          <li>
+            <a
+              href="https://github.com/w3c/mediacapture-extensions/blob/main/media-capture-elements-explainer.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              >Media Capture Elements explainer: &lt;camera&gt;, &lt;microphone&gt;, &lt;usermedia&gt;</a
+            >
+          </li>
+          <li>
+            <a
+              href="https://w3c.github.io/mediacapture-extensions/#the-usermedia-html-element"
+              target="_blank"
+              rel="noopener noreferrer"
+              >Specification — Media Capture and Streams Extensions</a
+            >
+          </li>
+          <li>
+            <a href="https://developer.chrome.com/blog/geolocation-html-element" target="_blank" rel="noopener noreferrer"
+              >Introducing the &lt;geolocation&gt; HTML element</a
+            >
+          </li>
+          <li>
+            <a href="https://developer.chrome.com/blog/permission-element-origin-trial" target="_blank" rel="noopener noreferrer"
+              >The original &lt;permission&gt; element origin trial (PEPC)</a
+            >
+          </li>
+          <li>
+            <a href="https://chromestatus.com/feature/5125006551416832" target="_blank" rel="noopener noreferrer"
+              >&lt;usermedia&gt; on Chrome Platform Status</a
+            >
+          </li>
+          <li>
+            <a href="https://developer.chrome.com/blog/chrome-153-beta" target="_blank" rel="noopener noreferrer"
+              >&lt;camera&gt; and &lt;microphone&gt; in Chrome 153</a
+            >
+          </li>
+          <li>
+            <a
+              href="https://wpt.fyi/results/html/semantics/permission-element/usermedia"
+              target="_blank"
+              rel="noopener noreferrer"
+              >Web Platform Tests for the element</a
+            >
+          </li>
+          <li>
+            <a href="https://blog.addpipe.com/getusermedia-getting-started/" target="_blank" rel="noopener noreferrer"
+              >Getting Started With getUserMedia</a
+            >
+          </li>
+        </ul>
+      </section>
+    </div>
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "What is the <usermedia> HTML element?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "A built-in HTML element, shipped in Chrome 151, that requests camera and microphone access and hands your page the resulting MediaStream. The browser renders the control and owns the click, so the permission prompt is always attached to a real user action. It is part of Chrome's Capability Elements suite alongside <geolocation>, <camera> and <microphone>."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does <usermedia> replace getUserMedia()?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. getUserMedia() remains the primary programmatic API. The <usermedia> element covers the common click-to-enable-camera flow; anything needing exact constraints, mid-call device switching or audio-only capture still uses the JavaScript API."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Which browsers support the <usermedia> element?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Chrome 151 and later on desktop and Android. It is not available in Android WebView. Firefox has the proposal under consideration and Safari has not given a position. In other browsers the tag is an unknown element and its fallback content renders instead."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Can I use <usermedia> for video only or audio only?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. The constraint filter always produces both an audio and a video entry, so the element always requests both devices. Use the <camera> element for video-only capture or the <microphone> element for audio-only capture."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Why are my setConstraints() constraints being ignored?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Chrome filters the dictionary. Only an allowlist of properties survives, and each must be a bare value: { width: { ideal: 1280 } } is dropped entirely while { width: 1280 } is kept. setConstraints() also only takes effect on its first call."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Why did my <usermedia> element stop responding to clicks?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Chrome disables the element when it cannot vouch for the click: text-to-background contrast under 3:1, a translucent color, a font size outside small to xxx-large, a forbidden display value, another element overlapping it, it being clipped or scrolled out of view, or it having been attached or modified within the last half second. The DevTools Issues panel names the exact violation."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Can I change the text of the <usermedia> button?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. The label is supplied by the browser, localized from the inherited lang attribute, and changes on its own between the request and granted states. A label the page cannot write is a label the user can trust."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does clicking the <usermedia> element skip the permission prompt?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. The click is a stronger signal of intent, which lets Chrome bypass the quiet blocks that suppress script-triggered prompts and offer in-page recovery after a denial, but the user still decides."
+            }
+          }
+        ]
+      }
+    </script>
+
+    <script src="js/main.js"></script>
+  </body>
+</html>
